@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Plus, Download, ZoomIn, ZoomOut, Upload, Trash2, Edit2, Video, X, Waves, Volume2, VolumeX, CheckCircle, Settings, Type } from 'lucide-react';
+import { Play, Pause, Plus, Download, ZoomIn, ZoomOut, Upload, Trash2, Edit2, Video, X, Waves, Volume2, VolumeX, CheckCircle, Settings, Type, Share2, FileVideo } from 'lucide-react';
 import { WaveformEditor } from './components/WaveformEditor';
 import { generateSRT, formatTime } from './utils/srt';
 import { Subtitle, SubtitleStyle } from './types';
@@ -49,6 +49,7 @@ const App: React.FC = () => {
   const [renderStatus, setRenderStatus] = useState<'idle' | 'rendering' | 'completed'>('idle');
   const [exportProgress, setExportProgress] = useState(0);
   const [mutePreview, setMutePreview] = useState(true);
+  const [exportedMedia, setExportedMedia] = useState<{ blob: Blob, url: string, fileName: string } | null>(null);
 
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -138,6 +139,11 @@ const App: React.FC = () => {
         videoRef.current.pause();
         previousVolumeRef.current = videoRef.current.volume;
     }
+    // Clean up previous export
+    if (exportedMedia) {
+        URL.revokeObjectURL(exportedMedia.url);
+        setExportedMedia(null);
+    }
     setIsExportingVideo(true);
     setRenderStatus('idle');
     setExportProgress(0);
@@ -225,11 +231,10 @@ const App: React.FC = () => {
     recorder.onstop = () => {
         const blob = new Blob(chunks, { type: selectedMimeType });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `avsub_export_${Date.now()}.${fileExtension}`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const fileName = `avsub_${Date.now()}.${fileExtension}`;
+        
+        // Save to state instead of auto-downloading
+        setExportedMedia({ blob, url, fileName });
         
         if (videoRef.current) {
             videoRef.current.pause();
@@ -309,6 +314,37 @@ const App: React.FC = () => {
     });
   };
 
+  const handleNativeShare = async () => {
+      if (!exportedMedia) return;
+      
+      try {
+          // Check if Web Share API is supported and can share files
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([exportedMedia.blob], exportedMedia.fileName, { type: exportedMedia.blob.type })] })) {
+              const file = new File([exportedMedia.blob], exportedMedia.fileName, { type: exportedMedia.blob.type });
+              await navigator.share({
+                  files: [file],
+                  title: 'Video Exported from AVSUB',
+                  text: 'Check out this video with subtitles!'
+              });
+          } else {
+              // Fallback to manual download if sharing fails or isn't supported
+              handleManualDownload();
+          }
+      } catch (error) {
+          console.log('Error sharing:', error);
+          // Fallback if user cancels or error occurs
+          handleManualDownload();
+      }
+  };
+
+  const handleManualDownload = () => {
+      if (!exportedMedia) return;
+      const a = document.createElement('a');
+      a.href = exportedMedia.url;
+      a.download = exportedMedia.fileName;
+      a.click();
+  };
+
   const closeExport = () => {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
           mediaRecorderRef.current.stop();
@@ -323,6 +359,9 @@ const App: React.FC = () => {
                cancelAnimationFrame(renderLoopIdRef.current);
           }
       }
+      // Note: We don't revoke immediately here if completed, we rely on the next handleExportVideo to clean up
+      // or we can clean up if the user explicitly closes without saving? 
+      // For safety, we keep the object URL valid until the user starts a new export or reloads.
       
       setIsExportingVideo(false);
       setRenderStatus('idle');
@@ -648,15 +687,39 @@ const App: React.FC = () => {
                 )}
 
                 {renderStatus === 'completed' && (
-                    <div className="w-full max-w-sm bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-2xl text-center">
-                         <div className="w-16 h-16 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <div className="w-full max-w-sm bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-2xl text-center animate-in zoom-in duration-300">
+                         <div className="w-16 h-16 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4 border border-green-500/20 shadow-[0_0_20px_rgba(34,197,94,0.3)]">
                              <CheckCircle size={32} />
                          </div>
-                         <h3 className="text-xl font-bold text-white mb-2">Export Complete!</h3>
-                         <p className="text-slate-400 text-sm mb-6">Your video has been downloaded.</p>
-                         <button onClick={closeExport} className="w-full py-3 rounded-xl font-bold bg-slate-800 text-white hover:bg-slate-700 transition">
-                            Close
-                         </button>
+                         <h3 className="text-xl font-bold text-white mb-1">Export Finished!</h3>
+                         <p className="text-slate-400 text-sm mb-6">Your video is ready to share.</p>
+                         
+                         <div className="space-y-3">
+                             {/* Primary Share Button */}
+                             <button 
+                                onClick={handleNativeShare}
+                                className="w-full py-4 rounded-xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-500 hover:to-emerald-500 transition flex items-center justify-center gap-2 shadow-lg shadow-green-900/40 active:scale-95"
+                             >
+                                <Share2 size={20} />
+                                Save / Share Video
+                             </button>
+
+                             {/* Fallback Download */}
+                             <button 
+                                onClick={handleManualDownload}
+                                className="w-full py-3 rounded-xl font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition flex items-center justify-center gap-2 border border-slate-700"
+                             >
+                                <FileVideo size={18} />
+                                Download File
+                             </button>
+
+                             <button 
+                                onClick={closeExport} 
+                                className="w-full py-2 text-sm text-slate-500 hover:text-slate-400 transition mt-2"
+                             >
+                                Close
+                             </button>
+                         </div>
                     </div>
                 )}
             </div>
