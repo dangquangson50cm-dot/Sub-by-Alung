@@ -1,0 +1,5 @@
+{
+  "name": "Mobile Subtitle Editor",
+  "description": "A high-performance, mobile-first video subtitle editor featuring waveform visualization, touch gestures, and SRT export.",
+  "requestFramePermissions": []
+}
